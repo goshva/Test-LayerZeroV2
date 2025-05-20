@@ -1,0 +1,165 @@
+<script type="text/javascript">
+    var gk_isXlsx = false;
+    var gk_xlsxFileLookup = {};
+    var gk_fileData = {};
+    function filledCell(cell) {
+      return cell !== '' && cell != null;
+    }
+    function loadFileData(filename) {
+    if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+        try {
+            var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+            var firstSheetName = workbook.SheetNames[0];
+            var worksheet = workbook.Sheets[firstSheetName];
+
+            // Convert sheet to JSON to filter blank rows
+            var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+            // Filter out blank rows (rows where all cells are empty, null, or undefined)
+            var filteredData = jsonData.filter(row => row.some(filledCell));
+
+            // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+            var headerRowIndex = filteredData.findIndex((row, index) =>
+              row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+            );
+            // Fallback
+            if (headerRowIndex === -1 || headerRowIndex > 25) {
+              headerRowIndex = 0;
+            }
+
+            // Convert filtered JSON back to CSV
+            var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+            csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+            return csv;
+        } catch (e) {
+            console.error(e);
+            return "";
+        }
+    }
+    return gk_fileData[filename] || "";
+    }
+    </script><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SimpleOFT Bridge</title>
+<script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import React, { useState, useEffect } from 'https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js';
+import ReactDOM from 'https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js';
+
+const App = () => {
+  const [account, setAccount] = useState(null);
+  const [balance, setBalance] = useState('0');
+  const [amount, setAmount] = useState('');
+  const [dstChainId, setDstChainId] = useState('10121'); // Ethereum
+  const [history, setHistory] = useState([]);
+  const contractAddress = '0xYourContractAddress';
+  const abi = [/* SimpleOFT ABI */];
+
+  const connectWallet = async () => {
+    if (window.ethereum) {
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      setAccount(accounts[0]);
+    }
+  };
+
+  const fetchBalance = async () => {
+    if (!account) return;
+    const web3 = new Web3(window.ethereum);
+    const contract = new web3.eth.Contract(abi, contractAddress);
+    const balance = await contract.methods.balanceOf(account).call();
+    setBalance(web3.utils.fromWei(balance, 'ether'));
+  };
+
+  const fetchHistory = async () => {
+    if (!account) return;
+    const response = await fetch(`http://localhost:3001/bridge-history?address=${account}`);
+    const data = await response.json();
+    setHistory(data);
+  };
+
+  const bridgeTokens = async () => {
+    if (!account || !amount) return;
+    const web3 = new Web3(window.ethereum);
+    const contract = new web3.eth.Contract(abi, contractAddress);
+    const receiver = web3.utils.toHex(account);
+    await contract.methods.send(web3.utils.toWei(amount, 'ether'), dstChainId, receiver).send({
+      from: account,
+      value: web3.utils.toWei('0.01', 'ether'), // Adjust for gas
+    });
+    fetchBalance();
+    fetchHistory();
+  };
+
+  useEffect(() => {
+    fetchBalance();
+    fetchHistory();
+  }, [account]);
+
+  return (
+    <div className="p-4 max-w-2xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">SimpleOFT Bridge</h1>
+      {!account ? (
+        <button onClick={connectWallet} className="bg-blue-500 text-white p-2 rounded">
+          Connect Wallet
+        </button>
+      ) : (
+        <div>
+          <p>Address: {account}</p>
+          <p>Balance: {balance} OFT</p>
+          <div className="my-4">
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount"
+              className="border p-2 mr-2"
+            />
+            <select
+              value={dstChainId}
+              onChange={(e) => setDstChainId(e.target.value)}
+              className="border p-2 mr-2"
+            >
+              <option value="10121">Ethereum</option>
+              <option value="10160">Base</option>
+            </select>
+            <button onClick={bridgeTokens} className="bg-green-500 text-white p-2 rounded">
+              Bridge
+            </button>
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Bridge History</h2>
+          <table className="w-full border">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border p-2">Amount</th>
+                <th className="border p-2">Destination Chain</th>
+                <th className="border p-2">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((tx, i) => (
+                <tr key={i}>
+                  <td className="border p-2">{tx.amount}</td>
+                  <td className="border p-2">{tx.dstChainId}</td>
+                  <td className="border p-2">{new Date(tx.timestamp * 1000).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: SimpleOFT
+    network: sepolia
+    source:
+      address: "0xYourContractAddress"
+      abi: SimpleOFT
+      startBlock: 123456
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - BridgeTransfer
+      abis:
+        - name: SimpleOFT
+          file: ./abis/SimpleOFT.json
+      eventHandlers:
+        - event: Bridged(address,uint256,uint16)
+          handler: handleBridged
+      file: ./src/mapping.ts

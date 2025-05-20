@@ -1,0 +1,7 @@
+type BridgeTransfer @entity {
+  id: ID!
+  user: Bytes!
+  amount: BigInt!
+  dstChainId: Int!
+  timestamp: BigInt!
+}
